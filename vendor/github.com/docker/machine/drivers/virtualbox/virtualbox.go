@@ -28,6 +28,10 @@ const (
 	defaultHostOnlyCIDR        = "192.168.99.1/24"
 	defaultHostOnlyNictype     = "82540EM"
 	defaultHostOnlyPromiscMode = "deny"
+	defaultUseBridgedNetwork   = false
+	defaultBridgedMethod       = "dhcp"
+	defaultBridgedCIDR         = ""
+	defaultBridgedInterface    = "eth0"
 	defaultUIType              = "headless"
 	defaultHostOnlyNoDHCP      = false
 	defaultDiskSize            = 20000
@@ -64,6 +68,10 @@ type Driver struct {
 	HostOnlyCIDR        string
 	HostOnlyNicType     string
 	HostOnlyPromiscMode string
+	UseBridgedNetwork   bool
+	BridgedMethod       string
+	BridgedCIDR         string
+	BridgedInterface    string
 	UIType              string
 	HostOnlyNoDHCP      bool
 	NoShare             bool
@@ -91,6 +99,10 @@ func NewDriver(hostName, storePath string) *Driver {
 		HostOnlyCIDR:        defaultHostOnlyCIDR,
 		HostOnlyNicType:     defaultHostOnlyNictype,
 		HostOnlyPromiscMode: defaultHostOnlyPromiscMode,
+		UseBridgedNetwork:   defaultUseBridgedNetwork,
+		BridgedMethod:       defaultBridgedNetMethod,
+		BridgedCIDR:         defaultBridgedCIDR,
+		BridgedInterface:    defaultBridgedInterface,
 		UIType:              defaultUIType,
 		HostOnlyNoDHCP:      defaultHostOnlyNoDHCP,
 		DNSProxy:            defaultDNSProxy,
@@ -166,6 +178,30 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 			EnvVar: "VIRTUALBOX_HOSTONLY_NIC_PROMISC",
 		},
 		mcnflag.StringFlag{
+			Name:   "virtualbox-use-bridged-network",
+			Usage:  "Use Bridged Network instead of Host Only Network",
+			Value:  defaultUseBridgedNetwork,
+			EnvVar: "VIRTUALBOX_USE_BRIDGED_NETWORK",
+		},
+		mcnflag.StringFlag{
+			Name:   "virtualbox-bridged-method",
+			Usage:  "Specify IP Address Method to use for Bridged Network",
+			Value:  defaultBridgedMethod,
+			EnvVar: "VIRTUALBOX_BRIDGED_METHOD",
+		},
+		mcnflag.StringFlag{
+			Name:   "virtualbox-bridged-cidr",
+			Usage:  "Specify the Bridged Network CIDR",
+			Value:  defaultBridegdCIDR,
+			EnvVar: "VIRTUALBOX_BRIDGED_CIDR",
+		},
+		mcnflag.StringFlag{
+			Name:   "virtualbox-bridged-interface",
+			Usage:  "Specify the Bridge Interface",
+			Value:  defaultBridegdCIDR,
+			EnvVar: "VIRTUALBOX_BRIDGED_Interface",
+		},
+		mcnflag.StringFlag{
 			Name:   "virtualbox-ui-type",
 			Usage:  "Specify the UI Type: (gui|sdl|headless|separate)",
 			Value:  defaultUIType,
@@ -237,6 +273,10 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 	d.Boot2DockerImportVM = flags.String("virtualbox-import-boot2docker-vm")
 	d.HostDNSResolver = flags.Bool("virtualbox-host-dns-resolver")
 	d.NatNicType = flags.String("virtualbox-nat-nictype")
+	d.UseBridgedNetwork = flags.Bool("virtualbox-use-bridged-network")
+	d.BridgedMethod = flags.String("virtualbox-bridged-method")
+	d.BridgedCIDR = flags.String("virtualbox-bridged-cidr")
+	d.BridgedInterface = flags.String("virtualbox-bridged-interface")
 	d.HostOnlyCIDR = flags.String("virtualbox-hostonly-cidr")
 	d.HostOnlyNicType = flags.String("virtualbox-hostonly-nictype")
 	d.HostOnlyPromiscMode = flags.String("virtualbox-hostonly-nicpromisc")
@@ -872,6 +912,27 @@ func (d *Driver) setupHostOnlyNetwork(machineName string) (*hostOnlyNetwork, err
 	}
 
 	return hostOnlyAdapter, nil
+}
+
+func (d *Driver) setupBridgedNetwork(machineName string) (*bridgedNetwork, error) {
+	bridgedCIDR := d.bridgedCIDR
+	bridgedMethod := d.bridgedMethod
+
+	ip, network, err := parseAndValidateCIDR(BridgedCIDR)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := d.vbm("modifyvm", machineName,
+		"--nic2", "bridged",
+		"--nictype2", d.HostOnlyNicType,
+		"--nicpromisc2", d.HostOnlyPromiscMode,
+		"--bridgeadapter2", hostOnlyAdapter.Name,
+		"--cableconnected2", "on"); err != nil {
+		return nil, err
+	}
+
+	return bridgeAdapter, nil
 }
 
 func getDHCPAddressRange(dhcpAddr net.IP, network *net.IPNet) (lowerIP net.IP, upperIP net.IP) {
